@@ -87,57 +87,43 @@ def on_receive(imu_data: dict):
     gyro = np.array(imu_data['gyro'])
     magn = np.array(imu_data['magn'])
 
+    # print accel with formatting
+    print(f"Accel: {accel[0]:.2f}, {accel[1]:.2f}, {accel[2]:.2f}")
+
     accel_normalized = accel / np.linalg.norm(accel)
     magn_normalized = magn / np.linalg.norm(magn)
 
-    # orientation = cross product of accel and magn
-    orientation = np.cross(accel_normalized, magn_normalized)
+    # x_vector = cross product of accel and magn
+    x_vector = np.cross(accel_normalized, magn_normalized)
 
-    # compute quaternion from orientation vector (assuming small angles)
-    norm = np.linalg.norm(orientation)
-    if norm > 0:
-        orientation /= norm  # Normalize the orientation vector
-    # Convert orientation vector to quaternion (simple approximation)
-    qx = orientation[0] * np.sin(norm / 2)
-    qy = orientation[1] * np.sin(norm / 2)
-    qz = orientation[2] * np.sin(norm / 2)
-    qw = np.cos(norm / 2)
+    # # compute quaternion from orientation vector (assuming small angles)
+    # norm = np.linalg.norm(orientation)
+    # if norm > 0:
+    #     orientation /= norm  # Normalize the orientation vector
+    # # Convert orientation vector to quaternion (simple approximation)
+    # qx = orientation[0] * np.sin(norm / 2)
+    # qy = orientation[1] * np.sin(norm / 2)
+    # qz = orientation[2] * np.sin(norm / 2)
+    # qw = np.cos(norm / 2)
 
-    tf_node.set_orientation(qx, qy, qz, qw)
-    tf_node.set_imu([qx, qy, qz, qw], gyro.tolist(), accel.tolist())
-    tf_node.set_magnetic_field(magn.tolist())
+    # tf_node.set_orientation(qx, qy, qz, qw)
+    # tf_node.set_imu([qx, qy, qz, qw], gyro.tolist(), accel.tolist())
+    # tf_node.set_magnetic_field(magn.tolist())
 
-    # Draw 3D arrows for magn and accel using Marker directly
+    # Draw 3D arrows for magn and accel using marker_helper Arrows
     canva.clear()
-    def make_arrow_marker(start, end, color, ns, marker_id):
-        marker = Marker()
-        marker.type = Marker.ARROW
-        marker.action = Marker.ADD
-        marker.header.frame_id = tf_node.child_frame
-        marker.scale.x = 0.5  # shaft length
-        marker.scale.y = 0.05 # shaft diameter
-        marker.scale.z = 0.05 # head diameter
-        marker.color.r = color[0] / 255
-        marker.color.g = color[1] / 255
-        marker.color.b = color[2] / 255
-        marker.color.a = 1.0
-        marker.ns = ns
-        marker.id = marker_id
-        marker.points = [Point(x=float(start[0]), y=float(start[1]), z=float(start[2])),
-                        Point(x=float(end[0]), y=float(end[1]), z=float(end[2]))]
-        return marker
+    arrow_accel = items.Arrow(((0, 0, 0), tuple(accel_normalized)), size=0.5, color=presets.GOLD)
+    arrow_magn = items.Arrow(((0, 0, 0), tuple(magn_normalized)), size=0.5, color=presets.MAGENTA)
+    x_vector_arrow = items.Arrow(((0, 0, 0), tuple(x_vector)), size=0.5, color=presets.GREEN)
+    canva.add(arrow_accel)
+    canva.add(arrow_magn)
+    canva.add(x_vector_arrow)
 
-    arrow_accel_marker = make_arrow_marker((0,0,0), accel_normalized, presets.GREEN, "accel", 0)
-    arrow_magn_marker = make_arrow_marker((0,0,0), magn_normalized, presets.RED, "magn", 1)
-    # Add to canva's items list directly
-    canva.items = []
-    canva.items.append(type('CustomItem', (), {'get_marker_array': lambda self: [arrow_accel_marker]})())
-    canva.items.append(type('CustomItem', (), {'get_marker_array': lambda self: [arrow_magn_marker]})())
     canva.draw()
 
     # print orientation in degrees
-    orientation_degrees = np.degrees(orientation)
-    print(f"Orientation (degrees): {orientation_degrees}")
+    # orientation_degrees = np.degrees(orientation)
+    # print(f"Orientation (degrees): {orientation_degrees}")
 
 if __name__ == "__main__":
     run_udp_receiver(UDP_IP, UDP_PORT, callback=on_receive)

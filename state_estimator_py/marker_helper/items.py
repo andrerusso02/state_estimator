@@ -286,13 +286,21 @@ class Sphere(Item):
 
 class Arrow(Item):
             
-    def __init__(self, pose, size=0.5, color=None):
+    def __init__(self, pose_or_points, size=0.5, color=None):
         if not shared_variables.visualization_enabled: return
 
         super().__init__(1)
         self.set_type(Marker.ARROW)
-        self.set_scale([size, size/5., size/5.])
-        self.set_pose(pose)
+        is_point_pair = (isinstance(pose_or_points, (list, tuple)) and 
+                         len(pose_or_points) == 2 and 
+                         isinstance(pose_or_points[0], (list, tuple, Point)))
+        if is_point_pair:
+            self.set_points(pose_or_points)
+            self.set_scale([size/10., size/5., size/3.])
+            self.markers[0].pose.orientation.w = 1.0
+        else:
+            self.set_pose(pose_or_points)
+            self.set_scale([size, size/5., size/5.])            
         self.set_color(color)
 
 

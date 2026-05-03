@@ -87,7 +87,7 @@ class Canva(metaclass=SingletonMeta):
             marker_array.markers.append(marker)
 
 
-    def add(self, item: items.Item, frame_id: str = 'map'):
+    def add(self, item: items.Item, frame_id: str = 'world'):
         if not shared_variables.visualization_enabled: return
         item.set_frame_id(frame_id)
         self.items.append(item)
