@@ -3,8 +3,10 @@ import struct
 from typing import Callable
 
 import numpy as np
+from scipy.spatial.transform import Rotation
 
 from publisher import start_tf_node_in_thread
+from undistort_mag import undistort_mag
 from marker_helper.canva import Canva
 from marker_helper import items, presets
 from visualization_msgs.msg import Marker
@@ -87,43 +89,49 @@ def on_receive(imu_data: dict):
     gyro = np.array(imu_data['gyro'])
     magn = np.array(imu_data['magn'])
 
+    # Apply magnetometer calibration
+    magn = undistort_mag(magn)
+
     # print accel with formatting
-    print(f"Accel: {accel[0]:.2f}, {accel[1]:.2f}, {accel[2]:.2f}")
+    # print(f"Accel: {accel[0]:.2f}, {accel[1]:.2f}, {accel[2]:.2f}")
+    # print(f"Magn: {magn[0]:.2f}, {magn[1]:.2f}, {magn[2]:.2f}")
+
+    magn_norm = np.linalg.norm(magn)
+
+    print(f"Magn norm: {magn_norm:.2f} uT")
 
     accel_normalized = accel / np.linalg.norm(accel)
     magn_normalized = magn / np.linalg.norm(magn)
 
     # x_vector = cross product of accel and magn
     x_vector = np.cross(accel_normalized, magn_normalized)
+    x_vector = x_vector / np.linalg.norm(x_vector)
+    z_vector = accel_normalized
+    y_vector = np.cross(z_vector, x_vector)
 
-    # # compute quaternion from orientation vector (assuming small angles)
-    # norm = np.linalg.norm(orientation)
-    # if norm > 0:
-    #     orientation /= norm  # Normalize the orientation vector
-    # # Convert orientation vector to quaternion (simple approximation)
-    # qx = orientation[0] * np.sin(norm / 2)
-    # qy = orientation[1] * np.sin(norm / 2)
-    # qz = orientation[2] * np.sin(norm / 2)
-    # qw = np.cos(norm / 2)
+    #compute quaternion from x_vector and z_vector using scipy
+    rot_matrix = np.column_stack((x_vector, y_vector, z_vector))
 
-    # tf_node.set_orientation(qx, qy, qz, qw)
-    # tf_node.set_imu([qx, qy, qz, qw], gyro.tolist(), accel.tolist())
-    # tf_node.set_magnetic_field(magn.tolist())
+    # Use the Scipy Rotation class (aliased or full name) to convert
+    quat = Rotation.from_matrix(rot_matrix).as_quat()  # Returns [x, y, z, w]
+
+    tf_node.set_magnetic_field(magn.tolist())
+    tf_node.set_imu(orientation=quat.tolist(), angular_velocity=gyro.tolist(), linear_acceleration=accel.tolist())
+    tf_node.set_orientation(quat.tolist())
 
     # Draw 3D arrows for magn and accel using marker_helper Arrows
     canva.clear()
     arrow_accel = items.Arrow(((0, 0, 0), tuple(accel_normalized)), size=0.5, color=presets.GOLD)
     arrow_magn = items.Arrow(((0, 0, 0), tuple(magn_normalized)), size=0.5, color=presets.MAGENTA)
-    x_vector_arrow = items.Arrow(((0, 0, 0), tuple(x_vector)), size=0.5, color=presets.GREEN)
+    x_vector_arrow = items.Arrow(((0, 0, 0), tuple(x_vector)), size=0.5, color=presets.RED)
     canva.add(arrow_accel)
     canva.add(arrow_magn)
     canva.add(x_vector_arrow)
 
     canva.draw()
 
-    # print orientation in degrees
-    # orientation_degrees = np.degrees(orientation)
-    # print(f"Orientation (degrees): {orientation_degrees}")
-
+    # print orientation in degrees, integer
+    euler = Rotation.from_quat(quat).as_euler('xyz', degrees=True)
+    # print(f"Orientation (Euler angles in degrees): {euler[0]:.1f}, {euler[1]:.1f}, {euler[2]:.1f}")
 if __name__ == "__main__":
     run_udp_receiver(UDP_IP, UDP_PORT, callback=on_receive)

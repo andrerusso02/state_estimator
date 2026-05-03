@@ -25,8 +25,8 @@ class PublisherNode(Node):
         }
         self._magnetic_field = [0.0, 0.0, 0.0]
 
-    def set_orientation(self, x, y, z, w):
-        self.orientation = [x, y, z, w]
+    def set_orientation(self, quaternion):
+        self.orientation = quaternion.copy()
 
     def set_translation(self, x, y, z):
         self.translation = [x, y, z]
