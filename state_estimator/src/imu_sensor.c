@@ -1,8 +1,11 @@
 #include "imu_sensor.h"
+#include "freq_monitor.h"
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
-#include <stdio.h>
+#include <zephyr/logging/log.h>
 #include <stdint.h>
+
+LOG_MODULE_REGISTER(imu_sensor, LOG_LEVEL_INF);
 
 #define ACCEL_NODE DT_ALIAS(accel0)
 #define GYRO_NODE  DT_ALIAS(gyro0)
@@ -14,27 +17,30 @@
 #error "Unsupported board: accel0, gyro0, and/or magn0 aliases missing."
 #endif
 
-/* Define your expected polling intervals based on your Kconfig ODRs */
-#define POLL_INTERVAL_ACCEL_MS 10  /* 100 Hz */
-#define POLL_INTERVAL_GYRO_MS  10  /* 100 Hz */
-#define POLL_INTERVAL_MAGN_MS  6   /* ~166 Hz (Closest to 155Hz) */
+/* Polling intervals based on Kconfig ODRs (104 Hz and 155 Hz) */
+#define POLL_INTERVAL_ACCEL_MS 9   /* ~111 Hz to ensure we don't miss 104 Hz samples */
+#define POLL_INTERVAL_GYRO_MS  9   
+#define POLL_INTERVAL_MAGN_MS  6   /* ~166 Hz for 155 Hz target */
 
 static const struct device *accel_dev = DEVICE_DT_GET(ACCEL_NODE);
 static const struct device *gyro_dev  = DEVICE_DT_GET(GYRO_NODE);
 static const struct device *magn_dev  = DEVICE_DT_GET(MAGN_NODE);
 
+K_MUTEX_DEFINE(imu_mutex);
 static struct imu_data current_data;
-static bool use_poll_accel, use_poll_gyro, use_poll_magn;
 
-static uint32_t accel_count = 0;
-static uint32_t gyro_count = 0;
-static uint32_t magn_count = 0;
-static uint32_t last_freq_calc_time = 0;
+static bool use_poll_accel = false;
+static bool use_poll_gyro  = false;
+static bool use_poll_magn  = false;
 
-/* Polling rate limit trackers */
-static uint32_t last_poll_accel = 0;
-static uint32_t last_poll_gyro = 0;
-static uint32_t last_poll_magn = 0;
+static struct freq_monitor accel_freq;
+static struct freq_monitor gyro_freq;
+static struct freq_monitor magn_freq;
+
+/* 64-bit trackers to prevent 49.7-day rollover bugs */
+static int64_t last_poll_accel     = 0;
+static int64_t last_poll_gyro      = 0;
+static int64_t last_poll_magn      = 0;
 
 static void extract_xyz(const struct device *dev, 
                         enum sensor_channel cx, enum sensor_channel cy, enum sensor_channel cz, 
@@ -48,41 +54,24 @@ static void extract_xyz(const struct device *dev,
 static void read_device_data(const struct device *dev)
 {
     if (sensor_sample_fetch(dev) < 0) {
+        LOG_ERR("Failed to fetch sample from %s", dev->name);
         return;
     }
+
+    k_mutex_lock(&imu_mutex, K_FOREVER);
     if (dev == accel_dev) {
         extract_xyz(dev, SENSOR_CHAN_ACCEL_X, SENSOR_CHAN_ACCEL_Y, SENSOR_CHAN_ACCEL_Z, current_data.accel);
-        accel_count++;
+        freq_monitor_tick(&accel_freq);
     }
     if (dev == gyro_dev) {
         extract_xyz(dev, SENSOR_CHAN_GYRO_X, SENSOR_CHAN_GYRO_Y, SENSOR_CHAN_GYRO_Z, current_data.gyro);
-        gyro_count++;
+        freq_monitor_tick(&gyro_freq);
     }
     if (dev == magn_dev) {
         extract_xyz(dev, SENSOR_CHAN_MAGN_X, SENSOR_CHAN_MAGN_Y, SENSOR_CHAN_MAGN_Z, current_data.magn);
-        magn_count++;
+        freq_monitor_tick(&magn_freq);
     }
-}
-
-void imu_analyze_frequency(void)
-{
-    uint32_t now = k_uptime_get_32();
-    uint32_t delta_ms = now - last_freq_calc_time;
-
-    if (delta_ms >= 1000) {
-        if (last_freq_calc_time != 0) {
-            uint32_t accel_hz = (accel_count * 1000) / delta_ms;
-            uint32_t gyro_hz  = (gyro_count * 1000) / delta_ms;
-            uint32_t magn_hz  = (magn_count * 1000) / delta_ms;
-
-            printf("[ANALYSIS] Actual ODR -> Accel: %u Hz | Gyro: %u Hz | Magn: %u Hz\n",
-                   accel_hz, gyro_hz, magn_hz);
-        }
-        accel_count = 0;
-        gyro_count = 0;
-        magn_count = 0;
-        last_freq_calc_time = now;
-    }
+    k_mutex_unlock(&imu_mutex);
 }
 
 static void trigger_handler(const struct device *dev, const struct sensor_trigger *trig)
@@ -93,7 +82,7 @@ static void trigger_handler(const struct device *dev, const struct sensor_trigge
 int imu_init(void)
 {
     if (!device_is_ready(accel_dev) || !device_is_ready(gyro_dev) || !device_is_ready(magn_dev)) {
-        printk("One or more IMU devices not ready.\n");
+        LOG_ERR("One or more IMU devices not ready.");
         return -ENODEV;
     }
 
@@ -101,13 +90,13 @@ int imu_init(void)
 
     if (sensor_trigger_set(accel_dev, &trig, trigger_handler) < 0) {
         use_poll_accel = true;
-        printk("Accelerometer in polling mode.\n");
+        LOG_WRN("Accelerometer in polling mode.");
     }
 
     if (gyro_dev != accel_dev) {
         if (sensor_trigger_set(gyro_dev, &trig, trigger_handler) < 0) {
             use_poll_gyro = true;
-            printk("Gyroscope in polling mode.\n");
+            LOG_WRN("Gyroscope in polling mode.");
         }
     } else {
         use_poll_gyro = use_poll_accel;
@@ -116,36 +105,33 @@ int imu_init(void)
     if (magn_dev != accel_dev && magn_dev != gyro_dev) {
         if (sensor_trigger_set(magn_dev, &trig, trigger_handler) < 0) {
             use_poll_magn = true;
-            printk("Magnetometer in polling mode.\n");
+            LOG_WRN("Magnetometer in polling mode.");
         }
     } else {
         use_poll_magn = (magn_dev == accel_dev) ? use_poll_accel : use_poll_gyro;
     }
 
-    /* Initialize polling timers */
-    uint32_t now = k_uptime_get_32();
+    int64_t now = k_uptime_get();
     last_poll_accel = now;
-    last_poll_gyro = now;
-    last_poll_magn = now;
+    last_poll_gyro  = now;
+    last_poll_magn  = now;
 
+    LOG_INF("IMU initialized successfully.");
     return 0;
 }
 
 void imu_poll_update(void)
 {
-    uint32_t now = k_uptime_get_32();
+    int64_t now = k_uptime_get();
 
-    /* Rate-limited Accel Fetch */
     if (use_poll_accel && (now - last_poll_accel >= POLL_INTERVAL_ACCEL_MS)) {
         read_device_data(accel_dev);
         last_poll_accel = now;
         
-        /* Synchronize timers for bundled sensors to prevent immediate duplicate fetches */
         if (gyro_dev == accel_dev) last_poll_gyro = now;
         if (magn_dev == accel_dev) last_poll_magn = now;
     }
 
-    /* Rate-limited Gyro Fetch (if separate from Accel) */
     if (use_poll_gyro && gyro_dev != accel_dev && (now - last_poll_gyro >= POLL_INTERVAL_GYRO_MS)) {
         read_device_data(gyro_dev);
         last_poll_gyro = now;
@@ -153,9 +139,53 @@ void imu_poll_update(void)
         if (magn_dev == gyro_dev) last_poll_magn = now;
     }
 
-    /* Rate-limited Magn Fetch (if separate from Accel and Gyro) */
     if (use_poll_magn && magn_dev != accel_dev && magn_dev != gyro_dev && (now - last_poll_magn >= POLL_INTERVAL_MAGN_MS)) {
         read_device_data(magn_dev);
         last_poll_magn = now;
     }
+}
+
+void imu_get_latest_data(struct imu_data *out_data)
+{
+    if (out_data == NULL) return;
+
+    k_mutex_lock(&imu_mutex, K_FOREVER);
+    *out_data = current_data;
+    k_mutex_unlock(&imu_mutex);
+}
+
+void imu_print_data(void)
+{
+    struct imu_data local_data;
+    imu_get_latest_data(&local_data);
+
+    LOG_INF("Accel (m/s^2): X=%f, Y=%f, Z=%f", 
+            sensor_value_to_double(&local_data.accel[0]),
+            sensor_value_to_double(&local_data.accel[1]),
+            sensor_value_to_double(&local_data.accel[2]));
+
+    LOG_INF("Gyro (rad/s):  X=%f, Y=%f, Z=%f", 
+            sensor_value_to_double(&local_data.gyro[0]),
+            sensor_value_to_double(&local_data.gyro[1]),
+            sensor_value_to_double(&local_data.gyro[2]));
+
+    LOG_INF("Magn (gauss):  X=%f, Y=%f, Z=%f", 
+            sensor_value_to_double(&local_data.magn[0]),
+            sensor_value_to_double(&local_data.magn[1]),
+            sensor_value_to_double(&local_data.magn[2]));
+}
+
+void imu_analyze_frequency(void)
+{
+    bool accel_updated = freq_monitor_update(&accel_freq);
+    bool gyro_updated  = freq_monitor_update(&gyro_freq);
+    bool magn_updated  = freq_monitor_update(&magn_freq);
+
+    if (accel_updated || gyro_updated || magn_updated) {
+        LOG_INF("Accel: %u Hz | Gyro: %u Hz | Magn: %u Hz", 
+                freq_monitor_get_hz(&accel_freq), 
+                freq_monitor_get_hz(&gyro_freq),
+                freq_monitor_get_hz(&magn_freq));
+    }
+
 }

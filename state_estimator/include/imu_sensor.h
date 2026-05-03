@@ -22,12 +22,13 @@ int imu_init(void);
 void imu_poll_update(void);
 
 /**
- * Retrieves the latest copied IMU data.
+ * Retrieves the latest copied IMU data safely.
+ * @param out_data Pointer to a buffer where the data will be copied.
  */
-const struct imu_data* imu_get_latest_data(void);
+void imu_get_latest_data(struct imu_data *out_data);
 
 /**
- * Helper to print the IMU data to the console.
+ * Helper to print the IMU data to the console using the Zephyr logging subsystem.
  */
 void imu_print_data(void);
 
