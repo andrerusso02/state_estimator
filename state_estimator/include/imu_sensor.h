@@ -31,4 +31,10 @@ const struct imu_data* imu_get_latest_data(void);
  */
 void imu_print_data(void);
 
+/**
+ * Computes and prints the actual frequency (Hz) of each sensor.
+ * Designed to be called continuously; will only print once per second.
+ */
+void imu_analyze_frequency(void);
+
 #endif /* IMU_SENSOR_H */

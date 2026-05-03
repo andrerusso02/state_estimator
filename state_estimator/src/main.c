@@ -12,8 +12,7 @@ int main(void)
            Sensors using interrupts are updated automatically in the background. */
         imu_poll_update();
 
-        imu_print_data();
-
-        k_sleep(K_MSEC(10));
+        // imu_print_data();
+		imu_analyze_frequency();
     }
 }
