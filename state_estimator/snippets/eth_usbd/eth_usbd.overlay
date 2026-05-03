@@ -1,7 +1,7 @@
 
-&clk_hsi48 { // Clock hooked to the USB Controller
-    status = "okay";
-};
+// &clk_hsi48 { // Clock hooked to the USB Controller (on some boards)
+//     status = "okay";
+// };
 
 / {
     cdc_ncm_eth0: cdc_ncm_eth0 { // Do we need the label?

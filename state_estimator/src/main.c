@@ -48,7 +48,7 @@ int main(void)
             LOG_DBG("Dropped UDP packet: %d", ret); /* Using DBG to prevent console spam */
         }
 
-        imu_analyze_frequency();
+        // imu_analyze_frequency();
 
         uint32_t overruns = k_timer_status_sync(&loop_timer);
         if (overruns > 1) {
