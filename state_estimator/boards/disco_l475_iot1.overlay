@@ -1,0 +1,12 @@
+/ {
+    aliases {
+        accel0 = &lsm6dsl;
+        gyro0 = &lsm6dsl;
+        magn0 = &lis3mdl_magn;
+    };
+};
+
+&i2c2 {
+    lis3mdl_magn: lis3mdl-magn@1e {
+    };
+};
