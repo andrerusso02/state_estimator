@@ -1,0 +1,16 @@
+
+&clk_hsi48 { // Clock hooked to the USB Controller
+    status = "okay";
+};
+
+/ {
+    cdc_ncm_eth0: cdc_ncm_eth0 { // Do we need the label?
+        compatible = "zephyr,cdc-ncm-ethernet";
+        remote-mac-address = "00005E005301";  // Apparently any could work
+    };
+};
+
+// The usbd Shell hardcodes the use of the label zephyr_udc0 at zephyr/subsys/usb/device_next/usbd_shell.c:49
+zephyr_udc0: &usbotg_fs {
+    status = "okay";
+};

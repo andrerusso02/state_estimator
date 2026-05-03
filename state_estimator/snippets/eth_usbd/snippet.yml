@@ -1,0 +1,4 @@
+name: eth_usbd
+append:
+  EXTRA_CONF_FILE: eth_usbd.conf
+  EXTRA_DTC_OVERLAY_FILE: eth_usbd.overlay
