@@ -117,7 +117,7 @@ def on_receive(imu_data: dict):
 
     tf_node.set_magnetic_field(magn.tolist())
     tf_node.set_imu(orientation=quat.tolist(), angular_velocity=gyro.tolist(), linear_acceleration=accel.tolist())
-    tf_node.set_orientation(quat.tolist())
+    # tf_node.set_orientation(quat.tolist())
 
     # Draw 3D arrows for magn and accel using marker_helper Arrows
     canva.clear()

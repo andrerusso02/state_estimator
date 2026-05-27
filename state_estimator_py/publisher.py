@@ -11,7 +11,7 @@ class PublisherNode(Node):
     def __init__(self):
         super().__init__('tf_publisher')
         self.br = TransformBroadcaster(self)
-        self.imu_pub = self.create_publisher(Imu, 'imu/data', 10)
+        self.imu_pub = self.create_publisher(Imu, 'imu/data_raw', 10)
         self.magnetic_pub = self.create_publisher(MagneticField, 'imu/mag', 10)
         self.timer = self.create_timer(0.01, self.timer_callback)  # 100Hz
         self.orientation = [0.0, 0.0, 0.0, 1.0]  # Quaternion x, y, z, w
